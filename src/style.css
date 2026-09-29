@@ -1,0 +1,57 @@
+:root {
+  --bg: #0e1220;
+  --panel: #171d31;
+  --panel2: #1f2742;
+  --border: #2a3454;
+  --text: #e8ecf6;
+  --muted: #8b93ad;
+  --accent: #ff6b6b;
+  --accent2: #ffd166;
+  --green: #6dd5a0;
+  --blue: #66a6ff;
+  --purple: #a78bfa;
+  --red: #ff6b6b;
+  --shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  background: radial-gradient(1200px 600px at 20% -10%, #1b2340 0%, var(--bg) 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+#app { min-height: 100vh; }
+
+button {
+  border: none; cursor: pointer; border-radius: 8px;
+  background: var(--panel2); color: var(--text);
+  padding: 7px 14px; font-size: 13px; transition: .18s;
+  border: 1px solid var(--border);
+}
+button:hover { background: #2a3458; transform: translateY(-1px); }
+button.primary { background: linear-gradient(135deg, var(--accent), #e85645); border: none; color: #fff; }
+button.succ { background: linear-gradient(135deg, var(--green), #4bb586); border: none; color: #06231a; }
+button.ghost { background: transparent; }
+button.danger { background: rgba(255,107,107,.14); color: var(--red); border-color: rgba(255,107,107,.4); }
+button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+input, select {
+  background: #10162a; border: 1px solid var(--border); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none;
+}
+input:focus, select:focus { border-color: var(--accent); }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2a3454; border-radius: 6px; }
+
+.views { padding: 20px 24px 40px; max-width: 1500px; margin: 0 auto; }
+.card { background: linear-gradient(180deg, var(--panel), #141a2c); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+.card h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.tag {
+  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
+  background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+}
+.muted { color: var(--muted); }
+.money { color: var(--green); font-weight: 600; }
+.money.neg { color: var(--red); }
+.grid { display: grid; gap: 14px; }
