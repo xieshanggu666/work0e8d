@@ -223,6 +223,10 @@ const statusBadge = st => ({
   refunded: { cls: 'b-refund', text: '已退款' },
   refunded_half: { cls: 'b-half', text: '退50%' }
 }[st] || { cls: '', text: st })
+// 超售已到场但兜底（改签/退款）失败待引擎重试：状态仍为待核销，但必须显式区分，避免被误认为未到场或已退款
+const rowBadge = r => r.overbook_waiting
+  ? { cls: 'b-waiting', text: '超售待安置' }
+  : statusBadge(r.status)
 
 // 行级操作防重：同一单据的核销/取消/改签进行中禁用按钮，并携带幂等键
 const rowBusy = ref({})
@@ -279,7 +283,7 @@ const detail = ref(null)
 const detailLogs = ref([])
 const ACTION_LABEL = {
   create: '游客下单', auto_book: '系统代约', checkin: '核销入园', reschedule: '游客改签',
-  auto_reschedule: '超售自动改签', noshow: '爽约处理', cancel: '取消(扣手续费)', refund: '退款', split: '拆单'
+  auto_reschedule: '超售自动改签', overbook: '超售挂起·待安置', noshow: '爽约处理', cancel: '取消(扣手续费)', refund: '退款', split: '拆单'
 }
 async function openDetail(r) {
   const d = await store.reservationDetail(r.id)
@@ -304,7 +308,8 @@ function pickDayIf(off) { return today.value + off }
       <div class="card stat"><span>⏭️</span><b>{{ stats.soldAheadQty }}</b><em>未来预售名额</em></div>
       <div class="card stat"><span class="money">¥</span><b class="money">{{ stats.soldAheadAmount.toLocaleString() }}</b><em>预售已收款</em></div>
       <div class="card stat" :class="{ alert: stats.noshowToday }"><span>⌛</span><b :class="stats.noshowToday ? 'neg' : ''">{{ stats.noshowToday }}</b><em>今日爽约单</em></div>
-      <div class="card stat" :class="{ alert: stats.oversoldPending }"><span>⚠️</span><b :class="stats.oversoldPending ? 'neg' : ''">{{ stats.oversoldPending }}</b><em>超售待处理</em></div>
+      <div class="card stat" :class="{ alert: stats.oversoldPending }"><span>⚠️</span><b :class="stats.oversoldPending ? 'neg' : ''">{{ stats.oversoldPending }}</b><em>超售名额待消化</em></div>
+      <div class="card stat" :class="{ alert: stats.overbookWaitingQty }"><span>🆘</span><b :class="stats.overbookWaitingQty ? 'neg' : ''">{{ stats.overbookWaitingQty }}</b><em>超售到场待安置（重试中）</em></div>
     </div>
 
     <div class="tabs card">
@@ -483,7 +488,7 @@ function pickDayIf(off) { return today.value + off }
           <div class="ti-main">
             <div class="code">
               <b>{{ r.code }}</b>
-              <span class="badge" :class="statusBadge(r.status).cls">{{ statusBadge(r.status).text }}</span>
+              <span class="badge" :class="rowBadge(r).cls">{{ rowBadge(r).text }}</span>
               <span class="tag">{{ r.scope_name }}</span>
               <span class="tag mem" v-if="r.member_id">💎 {{ r.member_code }} {{ r.member_name }}</span>
               <span class="tag fp" v-if="r.benefit_kind === 'fastpass'">⚡快速通行</span>
@@ -529,7 +534,7 @@ function pickDayIf(off) { return today.value + off }
     <div class="mask" v-if="detail" @click.self="closeDetail">
       <div class="dialog card">
         <h3>🎫 预约单 {{ detail.code }}
-          <span class="badge" :class="statusBadge(detail.status).cls">{{ statusBadge(detail.status).text }}</span>
+          <span class="badge" :class="rowBadge(detail).cls">{{ rowBadge(detail).text }}</span>
           <button class="ghost x" @click="closeDetail">✕</button>
         </h3>
         <p class="d-meta muted">
@@ -653,6 +658,7 @@ function pickDayIf(off) { return today.value + off }
 .b-noshow { color: #fff !important; background: var(--red) !important; border-color: var(--red) !important; }
 .b-refund { color: var(--blue) !important; border-color: rgba(102,166,255,.5) !important; }
 .b-half { color: var(--purple) !important; border-color: rgba(167,139,250,.5) !important; }
+.b-waiting { color: #fff !important; background: #e8821f !important; border-color: #e8821f !important; }
 .rs-box { display: flex; gap: 8px; align-items: center; }
 .rs-box select { flex: 1; max-width: 420px; }
 .flash { font-style: normal; font-size: 12.5px; }

@@ -206,7 +206,8 @@ CREATE TABLE IF NOT EXISTS reservations (
   created_day INTEGER NOT NULL,
   checked_tick INTEGER NOT NULL DEFAULT 0,
   closed_tick INTEGER NOT NULL DEFAULT 0,
-  closed_day INTEGER NOT NULL DEFAULT 0
+  closed_day INTEGER NOT NULL DEFAULT 0,
+  overbook_tick INTEGER NOT NULL DEFAULT 0  -- >0：到场时本场超售、待安置/退款兜底（故障重试中）；爽约批处理跳过，核销引擎每小时重试
 );
 CREATE INDEX IF NOT EXISTS idx_reservations_slot ON reservations(slot_day,slot_hour,status);
 CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
@@ -591,6 +592,9 @@ ensureColumn('staff_schedules', 'source', "source TEXT NOT NULL DEFAULT 'manual'
 ensureColumn('shift_requests', 'source', "source TEXT NOT NULL DEFAULT 'staff'")
 // 领队组团：source='group' 的预约单关联团行程明细 id（款项走团账，该预约 amount 恒为 0）
 ensureColumn('reservations', 'group_item_id', "group_item_id INTEGER")
+// 超售到场兜底：>0 表示游客已到场但本场满员，等待核销引擎重试安置（改签/本场核销）或全额退款；
+// 独立于终态先持久化，退款/改签事务失败后下次引擎仍可恢复，且不会被爽约批处理误没收
+ensureColumn('reservations', 'overbook_tick', "overbook_tick INTEGER NOT NULL DEFAULT 0")
 
 // ---------- 事务 ----------
 // 多步写入（库存/订单/现金/流水/日志）必须原子提交：任一步失败整体回滚，不留半完成状态。

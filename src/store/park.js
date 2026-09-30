@@ -26,7 +26,8 @@ function emptyReservationStats() {
   return {
     todayCap: 0, todayBooked: 0, todayChecked: 0, todayRefunded: 0, todayFill: 0,
     pendingOrders: 0, pendingQty: 0, noshowToday: 0, refundOrdersToday: 0, refundAmountToday: 0,
-    soldAheadQty: 0, soldAheadAmount: 0, oversoldPending: 0, calendar: []
+    soldAheadQty: 0, soldAheadAmount: 0, oversoldPending: 0,
+    overbookWaitingOrders: 0, overbookWaitingQty: 0, calendar: []
   }
 }
 

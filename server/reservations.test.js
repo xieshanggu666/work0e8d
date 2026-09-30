@@ -236,3 +236,103 @@ test('爽约批处理：过时段未核销标记 noshow 且预收款没收，不
   assert.equal(q2, 0)
   setSetting('hour', 9)
 })
+
+test('超售退款事务失败：不虚报已安置/退款，保持待核销且不被爽约，故障恢复后重试成功', () => {
+  setSetting('hour', 16)
+  const s = entrySlot(1, 16)
+  // 本场真实容量 1 且已核销满员；超售额度内还能约 1 人
+  db.prepare('UPDATE reservation_slots SET capacity=1, oversell=5, booked_count=0, checked_count=1 WHERE id=?').run(s.id)
+  // 封死所有更晚的入园备选时段（含明天/后天）→ 无备选可改签，只能走全额退款兜底
+  db.prepare(`UPDATE reservation_slots SET capacity=0, oversell=0
+              WHERE scope='entry' AND (day>1 OR (day=1 AND hour>16))`).run()
+  const book = RSV.createReservation({ scope: 'entry', slotId: s.id, qty: 1, source: 'manual', requestId: 't10-book-1' })
+  assert.equal(book.ok, true)
+  const cashAfterBook = cash()
+  const complaintsBefore = complaints.length
+
+  // 注入故障：退款事务中的资金流水写入失败 → 退款整体回滚
+  RSV.initReservationContext({
+    logFinance: (...args) => {
+      if (Number(args[2]) < 0) throw new Error('模拟资金流水故障')
+      return realLogFinance(...args)
+    },
+    createComplaint: p => { complaints.push(p); return { id: complaints.length, code: 'TS' + String(complaints.length).padStart(4, '0') } }
+  })
+  const r1 = RSV.autoCheckin(16)
+
+  // 批处理结果不得虚报：退款未成功提交，refunded=0；挂起 1 人待重试
+  assert.equal(r1.refunded, 0, '退款事务失败不得计入已退款人数')
+  assert.equal(r1.moved, 0, '未改签成功不得计入已安置人数')
+  assert.equal(r1.pending, 1, '应计入待安置（可恢复）人数')
+  assert.ok(r1.errors >= 1, '失败应计入 errors')
+  // 资金/库存/单据保持退款前一致（事务已回滚）
+  const mid = rsvById(book.id)
+  assert.equal(mid.status, 'booked', '退款回滚后预约必须仍是待核销')
+  assert.ok(mid.overbook_tick > 0, '应持久化超售待安置标记，供引擎重试')
+  assert.equal(cash(), cashAfterBook, '退款回滚，现金不得被扣减')
+  assert.equal(slotById(s.id).refund_count, 0, '库存退款计数不得增加')
+  assert.equal(complaints.length, complaintsBefore, '投诉随退款事务回滚，不得残留')
+
+  // 爽约批处理必须跳过该单（游客实际已到场），不得没收全款虚增「违约」
+  assert.equal(RSV.expireNoShow(17), 0, '待安置单不得被爽约没收')
+  assert.equal(rsvById(book.id).status, 'booked')
+  assert.equal(cash(), cashAfterBook, '不得产生爽约没收收入')
+
+  // 故障恢复：下一小时引擎重试，退款成功提交并生成投诉
+  RSV.initReservationContext({ logFinance: realLogFinance })
+  const r2 = RSV.autoCheckin(17)
+  assert.equal(r2.pending, 0, '恢复后不应再有挂起人数')
+  assert.equal(r2.refunded, 1, '重试成功才计入已退款人数')
+  assert.equal(r2.errors, 0)
+  const done = rsvById(book.id)
+  assert.equal(done.status, 'refunded', '重试后终态为已退款')
+  assert.equal(done.overbook_tick, 0, '终态后清除待安置标记')
+  assert.equal(done.refund_amount, 100)
+  assert.equal(cash(), cashAfterBook - 100, '现金恰好退款一次')
+  assert.equal(slotById(s.id).refund_count, 1)
+  assert.equal(complaints.length, complaintsBefore + 1, '成功退款后生成一张超售投诉')
+
+  // 清理：恢复被本用例封死的备选时段（只动 capacity=0 的行，不影响正常时段核销计数）
+  db.prepare("UPDATE reservation_slots SET capacity=400, oversell=20 WHERE scope='entry' AND day BETWEEN 1 AND 3 AND capacity=0").run()
+  db.prepare("UPDATE reservation_slots SET capacity=400, oversell=20, checked_count=0 WHERE id=?").run(s.id)
+  setSetting('hour', 9)
+})
+
+test('超售兜底失败后容量释放：重试改走本场核销，真实入园而非退款', () => {
+  setSetting('hour', 17)
+  const s = entrySlot(1, 17)
+  db.prepare('UPDATE reservation_slots SET capacity=1, oversell=5, booked_count=0, checked_count=1 WHERE id=?').run(s.id)
+  // 封死所有更晚入园备选时段，确保首次只能走退款兜底
+  db.prepare(`UPDATE reservation_slots SET capacity=0, oversell=0
+              WHERE scope='entry' AND (day>1 OR (day=1 AND hour>17))`).run()
+  const book = RSV.createReservation({ scope: 'entry', slotId: s.id, qty: 1, source: 'manual', requestId: 't11-book-1' })
+  assert.equal(book.ok, true)
+  const cashAfterBook = cash()
+
+  // 退款通道故障 → 挂起待重试
+  RSV.initReservationContext({
+    logFinance: (...args) => {
+      if (Number(args[2]) < 0) throw new Error('模拟资金流水故障')
+      return realLogFinance(...args)
+    }
+  })
+  const r1 = RSV.autoCheckin(17)
+  assert.equal(r1.pending, 1)
+  assert.equal(rsvById(book.id).overbook_tick > 0, true)
+
+  // 运营处理（例如前序游客离场）：本场腾出容量
+  db.prepare('UPDATE reservation_slots SET checked_count=0 WHERE id=?').run(s.id)
+  RSV.initReservationContext({ logFinance: realLogFinance })
+  const r2 = RSV.autoCheckin(18)
+  assert.equal(r2.entry >= 1, true, '容量释放后重试应本场核销、计入真实入园')
+  assert.equal(r2.refunded, 0, '已核销入园不得再退款')
+  assert.equal(r2.pending, 0)
+  const done = rsvById(book.id)
+  assert.equal(done.status, 'checked')
+  assert.equal(done.overbook_tick, 0)
+  assert.equal(cash(), cashAfterBook, '核销不产生新的资金变动（预收已确认）')
+
+  db.prepare("UPDATE reservation_slots SET capacity=400, oversell=20 WHERE scope='entry' AND day BETWEEN 1 AND 3 AND capacity=0").run()
+  db.prepare("UPDATE reservation_slots SET capacity=400, oversell=20, checked_count=0 WHERE id=?").run(s.id)
+  setSetting('hour', 9)
+})

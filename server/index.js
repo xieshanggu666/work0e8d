@@ -593,6 +593,10 @@ function tick() {
     const arrival = autoCheckin(hour)
     reservedEntry = arrival.entry
     arrival.ride.forEach((qty, rid) => reservedRiders.set(rid, qty))
+    // 超售兜底事务失败的单保持「已到场待安置」：不计爽约/不记已退款，引擎后续小时持续重试
+    if (arrival.pending > 0) {
+      console.warn(`[reservations] 超售安置待重试：${arrival.pending} 人（已跳过爽约没收，将在后续小时自动重试改签/退款）`)
+    }
     // 领队组团：自动收尾款 + 到点分批/整团核销（入园优先），回写同一套客流与设施游玩量
     const groupArrival = autoGroupTick()
     reservedEntry += groupArrival.entry

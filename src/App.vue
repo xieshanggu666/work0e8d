@@ -71,6 +71,7 @@ onMounted(store.refresh)
           <span class="halo red" v-if="store.schedulingStats.absentToday">❌ {{ store.schedulingStats.absentToday }} 人今日旷工</span>
           <span class="halo" v-if="store.schedulingStats.coverageBlocks">⛔ {{ store.schedulingStats.coverageBlocks }} 项关键岗位缺岗</span>
           <span class="halo" v-if="store.reservationStats.oversoldPending">⚠️ {{ store.reservationStats.oversoldPending }} 个超售时段待消化</span>
+          <span class="halo red" v-if="store.reservationStats.overbookWaitingQty">🆘 {{ store.reservationStats.overbookWaitingQty }} 名超售游客到场待安置（系统重试中）</span>
           <span class="halo" v-if="store.groupStats.pending">🧑‍✈️ {{ store.groupStats.pending }} 个团队待确认</span>
           <span class="halo red" v-if="store.groupStats.interrupted">🚧 {{ store.groupStats.interrupted }} 段团队行程停运待处置</span>
           <span class="halo" v-if="store.memberStats.expiring">💳 {{ store.memberStats.expiring }} 张会员卡即将到期</span>
