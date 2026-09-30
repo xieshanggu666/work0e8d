@@ -2,7 +2,7 @@ import express from 'express'
 import db, { getSetting, setSetting, tx } from './db.js'
 import {
   initReservationContext, ensureSlots, syncRideSlots,
-  autoCheckin, expireNoShow, autoBookDemand,
+  autoCheckin, expireNoShow, autoBookDemand, retryPendingOverbookRefunds,
   createReservation, cancelReservation, rescheduleReservation, checkinReservation,
   listSlots, listReservations, reservationLogs, updateSlot, reservationStats,
   refundReservation, autoBookMember
@@ -585,7 +585,13 @@ function tick() {
 
   // ---- 分时预约闭环 ----
   ensureSlots()                       // 维护未来三天的入园/设施时段库存
-  expireNoShow(hour)                  // 过时段未核销 → 爽约，预收款没收
+  // 异常恢复必须先于爽约扫描：超售退款事务失败的挂起单先尝试补退，
+  // 补退成功才释放名额/退现金，仍失败则保持 booked，且不会被下面的爽约扫描误没收
+  const overbookRetry = retryPendingOverbookRefunds()
+  if (overbookRetry.recovered > 0) {
+    console.log(`[reservations] 超售补退恢复 ${overbookRetry.recovered} 单 / ${overbookRetry.qty} 人，退款 ¥${overbookRetry.amount}；剩余挂起 ${overbookRetry.remaining}`)
+  }
+  expireNoShow(hour)                  // 过时段未核销 → 爽约，预收款没收（挂起补退单除外）
   // 入园时段（9~18点）核销当前时段预约：容量内放行，超售自动改签/退款
   let reservedEntry = 0
   const reservedRiders = new Map()
@@ -593,6 +599,13 @@ function tick() {
     const arrival = autoCheckin(hour)
     reservedEntry = arrival.entry
     arrival.ride.forEach((qty, rid) => reservedRiders.set(rid, qty))
+    // 新增挂起（退款事务失败）：预约保持待核销、未计入已安置/已退款，登记经营异常事件提醒人工跟进
+    if (arrival.pendingNew > 0) {
+      db.prepare('INSERT INTO events(tick,day,type,title,desc,impact,status) VALUES(?,?,?,?,?,?,?)')
+        .run(tickCount, day, 'reservation', '超售退款事务失败 · 已挂起自动补退',
+          `${arrival.pendingNew} 张超售预约退款事务执行失败，已整体回滚（现金未退、库存未释放、未计入已安置/退款），预约保持待核销并进入自动补退队列；系统每小时重试，期间不会按爽约没收预收款。财务与库存口径保持一致，请关注补退结果。`,
+          -1, 'active')
+    }
     // 领队组团：自动收尾款 + 到点分批/整团核销（入园优先），回写同一套客流与设施游玩量
     const groupArrival = autoGroupTick()
     reservedEntry += groupArrival.entry

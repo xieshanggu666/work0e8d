@@ -222,6 +222,23 @@ CREATE TABLE IF NOT EXISTS reservation_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_reservation_logs_rid ON reservation_logs(reservation_id);
 
+-- 异常补偿队列：自动/人工核销遇超售且退款事务失败（系统异常已回滚）时持久化挂起，
+-- 引擎每小时先重试补退、再跑爽约扫描；挂起期间预约保持 booked，不会被误按爽约没收。
+-- 每张预约同一时刻至多一条 pending（部分唯一索引），成功补退/预约已被他途处理后置 done/obsolete。
+CREATE TABLE IF NOT EXISTS reservation_pending_actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reservation_id INTEGER NOT NULL,
+  action TEXT NOT NULL DEFAULT 'overbook_refund', -- overbook_refund 超售全额退款补退
+  status TEXT NOT NULL DEFAULT 'pending',         -- pending 待重试 / done 已补退 / obsolete 预约已被他途处理
+  attempts INTEGER NOT NULL DEFAULT 0,            -- 已尝试次数
+  last_error TEXT NOT NULL DEFAULT '',            -- 最近一次失败错误码与信息（可追踪）
+  created_tick INTEGER NOT NULL,
+  created_day INTEGER NOT NULL,
+  updated_tick INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rsv_pending_one ON reservation_pending_actions(reservation_id) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS idx_rsv_pending_status ON reservation_pending_actions(status);
+
 -- 设施检修工单：报修后进入排队，维修员工接单后按游戏时间推进，支持转派与离岗接续
 CREATE TABLE IF NOT EXISTS maintenance_orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
